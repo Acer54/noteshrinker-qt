@@ -17,7 +17,6 @@ from PyQt4.QtCore import *
 from PyQt4.QtGui import *
 
 
-
 __author__ = 'matthias laumer, matthias.laumer@web.de'
 __title__='noteshrinker_qt'
 __version__ = "0.0.1"

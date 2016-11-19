@@ -3,21 +3,30 @@ from PyQt4.QtCore import *
 from PyQt4.QtGui import *
 
 class Workbench_Tablewidget(QTableWidget):
+
+    """
+    A Tablewidget which supports Drag and Drop for internal move (Drag/Drop by moving vertical Headers or Rows)
+    You also can call "moveUp" , "moveDown" to move (single or multiple) rows up or down or drag an drop multiple rows.
+    """
+
+    # custom signal with an integer value telling the status when doing a long process
+    sig_setProgressValue = pyqtSignal(int)
+    sig_filesAccepted = pyqtSignal()
+
     def __init__(self, *args, **kwargs):
         QTableWidget.__init__(self, *args, **kwargs)
-
-        self.setDragEnabled(True)
-        self.setAcceptDrops(True)
-        self.viewport().setAcceptDrops(True)
-        self.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.setDragDropMode(QAbstractItemView.DragDrop)
-        self.setDragDropOverwriteMode(False)
-
-        self.verticalHeader().setMovable(True)  #Keep Numbering
-        self.verticalHeader().sectionMoved.connect(self.renumberHeader)
-
-        # self.setSelectionMode(QAbstractItemView.SingleSelection)
-
+        #======================= Settings ============================================================================#
+        self.setEditTriggers(QAbstractItemView.NoEditTriggers)    # disable editable items
+        self.setDragEnabled(True)                                 # Drag (internal) is allowed
+        self.setAcceptDrops(True)                                 # Drops (internal & external) are allowed
+        self.viewport().setAcceptDrops(True)                      # My Viewport (mainwindow) also accept Drops
+        self.setSelectionBehavior(QAbstractItemView.SelectRows)   # Only complete rows can be selected
+        self.setDragDropMode(QAbstractItemView.DragDrop)          # normal Drag-Drop behaviour
+        self.setDragDropOverwriteMode(False)                      # do not "replace" Items with dropped content
+        self.verticalHeader().setMovable(True)                    # this keeps the numbering, we do not want this
+        self.verticalHeader().sectionMoved.connect(self.renumberHeader)  # Renumber 1.2.3... after move (custom-funct)
+        # self.setSelectionMode(QAbstractItemView.SingleSelection) # multiple rows can be selected for drag or removal
+        #======================= Variables ===========================================================================#
         self.last_drop_row = None
 
     def renumberHeader(self, *args):
@@ -40,51 +49,18 @@ class Workbench_Tablewidget(QTableWidget):
 
     def dropEvent(self, event):
 
-        #print("Drop!")
         if event.source() == self:
-            #print("internal")
-            # The QTableWidget from which selected rows will be moved
-            sender = event.source()
-
             # Default dropEvent method fires dropMimeData with appropriate parameters (we're interested in the row index).
             QTableWidget.dropEvent(self, event)
             # Now we know where to insert selected row(s)
             dropRow = self.last_drop_row
+            selectedRows =self.getselectedRowsFast()
+            self.moveRows(selectedRows, dropRow)
 
-            selectedRows = sender.getselectedRowsFast()
-
-            # Allocate space for transfer
-            for _ in selectedRows:
-                self.insertRow(dropRow)
-
-            # if sender == receiver (self), after creating new empty rows selected rows might change their locations
-            sel_rows_offsets = [0 if self != sender or srow < dropRow else len(selectedRows) for srow in selectedRows]
-            selectedRows = [row + offset for row, offset in zip(selectedRows, sel_rows_offsets)]
-
-            # copy content of selected rows into empty ones
-            for i, srow in enumerate(selectedRows):
-                for j in range(self.columnCount()):
-                    cellWidget = None
-                    item = sender.item(srow, j)
-                    if item is None:
-                        cellWidget = sender.cellWidget(srow, j)
-                    if item:
-                        source = QTableWidgetItem(item)
-                        self.setItem(dropRow + i, j, source)
-                        #self.selectRow(dropRow + i)
-                        self.setItemSelected(source, True)
-                    elif cellWidget is not None:
-                        self.setCellWidget(dropRow + i, j, cellWidget)
-
-            # delete selected rows
-            for srow in reversed(selectedRows):
-                sender.removeRow(srow)
-
-            self.resizeRowsToContents()
-            self.renumberHeader()
             event.accept()
         elif event.mimeData().hasFormat('text/uri-list'):
             self.addFiles(event.mimeData().urls()) # This is a list with QURLs
+            event.accept()
         else:
             event.ignore()
 
@@ -112,11 +88,17 @@ class Workbench_Tablewidget(QTableWidget):
         :param filepathslist: [PyQt4.QtCore.QUrl(u'file:///home/matthias/Bilder/test1.jpg')]
         :return:
         '''
-        for file in filepathslist:
+        if len(filepathslist) == 0:
+            return False
+
+        for i, file in enumerate(filepathslist):
+            self.sig_setProgressValue.emit(100/len(filepathslist) * i)
             if isinstance(file, QUrl):
                 file = file.toLocalFile()   # convert filepath from QUrl to a QString
-            i = self.rowCount()
+            if not os.path.isfile(file):
+                continue   # override dirs!
 
+            i = self.rowCount()
             # Load Picture:
             pic = QPixmap(file).scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             picture_entry = QTableWidgetItem()
@@ -128,13 +110,13 @@ class Workbench_Tablewidget(QTableWidget):
             name_entry.setData(Qt.UserRole, file)
 
             # Calculate Size
-            size = self.humansize(os.path.getsize('/home/matthias/Bilder/test2.jpg'))
+            size = self.humansize(os.path.getsize(file))
             size_entry = QTableWidgetItem(size)
 
             # Create a "Delete-Button"
             btn = QPushButton(self.tr("Remove"))
             btn.object = name_entry   # this attr will be read by "remove" to identifie the corret row to remove
-            #TODO: Create connection to "Remove"
+            btn.clicked.connect(self.onRemoveBtn)
 
             self.insertRow(i)
             self.setItem(i, 0, picture_entry)
@@ -143,12 +125,75 @@ class Workbench_Tablewidget(QTableWidget):
             self.setCellWidget(i, 3, btn)
             self.resizeRowsToContents()
 
-    def onRemoveBtn(self, btn):
-        pass
+        self.sig_setProgressValue.emit(100)
+        self.sig_filesAccepted.emit()
 
-    def removeFiles(self, filelist):
-        pass
+    @pyqtSlot()                              # Connected to "clicked" of the "Remove" Buttons
+    def onRemoveBtn(self):
+        button = self.sender()
+        index = self.indexAt(button.pos())
+        if index.isValid():
+            self.removeRow(index.row())
+            self.renumberHeader()
 
+    @pyqtSlot()                              # Connected to "clicked" of the "Remove" Buttons
+    def removeMarked(self):
+        index_list = []
+        for model_index in self.selectionModel().selectedRows():
+            index = QPersistentModelIndex(model_index)
+            index_list.append(index)
+
+        for index in index_list:
+            self.removeRow(index.row())
+        self.renumberHeader()
+
+    @pyqtSlot()                              # Connected to "clicked" of the "Remove" Buttons
+    def moveDown(self):
+
+        selectedRows = self.getselectedRowsFast()
+        dropRow = selectedRows[0] +len(selectedRows) +1
+        if dropRow < self.rowCount()+1:
+            self.moveRows(selectedRows, dropRow)
+
+    @pyqtSlot()                              # Connected to "clicked" of the "Remove" Buttons
+    def moveUp(self):
+        selectedRows = self.getselectedRowsFast()
+        dropRow = selectedRows[0] -1
+        if dropRow >= 0:
+            self.moveRows(selectedRows, dropRow)
+
+    def moveRows(self, selectedRows, targetrow):
+        # Allocate space for transfer
+        for _ in selectedRows:
+            self.insertRow(targetrow)
+        # if self == receiver (self), after creating new empty rows selected rows might change their locations
+        sel_rows_offsets = [0 if srow < targetrow else len(selectedRows) for srow in selectedRows]
+        selectedRows = [row + offset for row, offset in zip(selectedRows, sel_rows_offsets)]
+
+        # copy content of selected rows into empty ones
+        for i, srow in enumerate(selectedRows):
+            for j in range(self.columnCount()):
+                cellWidget = None
+                item = self.item(srow, j)
+                if item is None:
+                    cellWidget = self.cellWidget(srow, j)
+                if item:
+                    source = QTableWidgetItem(item)
+                    self.setItem(targetrow + i, j, source)
+                elif cellWidget is not None:
+                    self.setCellWidget(targetrow + i, j, cellWidget)
+        #select the new rows
+        self.setSelectionMode(QAbstractItemView.MultiSelection)
+        for selection in range(len(selectedRows)):
+            self.selectRow(targetrow+selection)
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+
+        # delete selected rows
+        for srow in reversed(selectedRows):
+            self.removeRow(srow)
+
+        self.resizeRowsToContents()
+        self.renumberHeader()
 
     def humansize(self, nbytes):
         suffixes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']

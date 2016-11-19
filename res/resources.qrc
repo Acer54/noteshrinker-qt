@@ -1,5 +1,13 @@
 <!DOCTYPE RCC><RCC version="1.0">
 <qresource>
+<file alias="add_row.png">icons/add_row.png</file>
+<file alias="exit.png">icons/exit.png</file>
 <file alias="image.png">icons/image.png</file>
+<file alias="pdf.png">icons/pdf.png</file>
+<file alias="print.png">icons/print.png</file>
+<file alias="remove_row.png">icons/remove_row.png</file>
+<file alias="settings.png">icons/settings.png</file>
+<file alias="moveUp.png">icons/moveUp.png</file>
+<file alias="moveDown.png">icons/moveDown.png</file>
 </qresource>
 </RCC>

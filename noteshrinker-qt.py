@@ -2,18 +2,41 @@
 # -*- coding: utf-8 -*-
 #######################################################################################################################
 # Description:
+# noteshrinker-qt is a multilingual GUI for the commandline program "noteshrink" (https://github.com/mzucker/noteshrink)
+# which was initially created from Matt Zucker(https://github.com/mzucker).
+# It supports adding, organizing and trimming possible arguments. It supplies previews and lets the user define
+# the output-formats.
+# It is cross-platform compatible and able to run with Python >= 2.7 and Qt >= 4.
 #
 #
+# License:
+#    MIT License
+#    Copyright (c) 2016 Laumer Matthias
+#    Permission is hereby granted, free of charge, to any person obtaining a copy
+#    of this software and associated documentation files (the "Software"), to deal
+#    in the Software without restriction, including without limitation the rights
+#    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#    copies of the Software, and to permit persons to whom the Software is
+#    furnished to do so, subject to the following conditions:
 #
+#    The above copyright notice and this permission notice shall be included in all
+#    copies or substantial portions of the Software.
+#
+#    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#    SOFTWARE.
 #######################################################################################################################
 
 
-import sys, os, logging, logging.handlers, io, argparse, time, signal, ConfigParser
+import sys, os, logging, logging.handlers, io, argparse, time, signal
 import res.res
-from lib import global_vars
 from ui.mainwindow import Ui_MainWindow_noteshrinker_qt
 from lib.FileSystemView import LM_QFileSystemModel, FileIconProvider
-from PyQt4.QtCore import *
+from PyQt4.QtCore import *  #TODO: Add Pyqt5 Support
 from PyQt4.QtGui import *
 
 
@@ -95,75 +118,11 @@ def excepthook(excType, excValue, traceback):
                  exc_info=(excType, excValue, traceback))
 
 
-def read_conf(filepath, extention=".ini"):
-    '''
-    Reading a ini-like configuration-File and return it in a dict. {section:{option:value}}
-    :param filepath: absolute filepath to the configuration-file
-    :param extention: ".ini", ".conf", ".whatever"
-    :return: Dict {'General': {'second': '1', 'thisisabool': True, 'key': '"value"'}}
-    '''
-
-    if not os.path.exists(filepath):
-        logger.error(_('Configuration-File "{0}" does not exist').format(filepath))
-        return False
-    else:
-        basename = os.path.basename(filepath)
-
-    logger.info(_('Reading Configuration-File "{0}"').format(basename))
-    if not os.path.isfile(filepath):
-        logger.error(_('Configuration "{0}" does not exist or can not be accessed.').format(basename))
-        raise IOError
-
-    if not os.path.splitext(filepath)[1] == extention:
-        logger.error(_('Configuration-File "{0}" has wrong file-format (need {1})').format(basename, extention))
-        raise IOError
-    target = {}
-    try:
-        config = ConfigParser.RawConfigParser(allow_no_value=False)
-        config.read(filepath)
-        sections = config.sections()
-        for section in sections:
-            target.setdefault(section, {})
-            options = config.options(section)
-            for option in options:
-                try:
-                    # this is the Value
-                    tempopt = config.get(section, option)
-                    # Check if the value should be a boolian Value... and convert if necessary
-                    if tempopt in ["true", "True", "TRUE"]:
-                        logger.debug(_("Convert value '{0}' from Option {1} to bool").format(tempopt, option))
-                        tempopt = True
-                    elif tempopt in ["false", "False", "FALSE"]:
-                        logger.debug(_("Convert value '{0}' from Option {1} to bool").format(tempopt, option))
-                        tempopt = False
-                    elif tempopt in [None, ""]:
-                        logger.debug(_("Setting Value '{0}' from Option {1} to None-Type").format(tempopt, option))
-                        tempopt = None
-
-                    target[section][option] = tempopt
-                except:
-                    e = sys.exc_info()[0]
-                    logger.error(_("exception on {0} with {1}! Will override this with 'None-Type'").format(option, e))
-                    target[section][option] = None
-        logger.info(_("Reading Configurations-File complete."))
-        return target
-    except:
-        e = sys.exc_info()[0]
-        logger.error(_("Configuration {0} can not be read! Error: {1}").format(filepath, e))
-        raise IOError
-
-
-###################### Read Configuration-File (webradio.conf) #######################
-if os.path.isfile(os.path.join(cwd, "noteshrinker.conf")):
-    global_vars.configuration = read_conf(os.path.join(cwd, "noteshrinker.conf"), ".conf")
-else:
-    raise ImportError("No Configuration-File found! Check webradio.conf")
-
-
 class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
     '''
     All the visible aspects which have to be handled are in this class.
     '''
+    sig_setProgressValue = pyqtSignal(int)
 
     def __init__(self, parent=None):
         '''
@@ -184,6 +143,8 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         self.createConnections()
         self.checkActions()
         self.__moveCenter()
+
+        QTimer.singleShot(1, lambda: self.sig_setProgressValue.emit(0))
 
     ##################################################################################################STARTUP Actions:
 
@@ -206,12 +167,14 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
 
         return app_icon
 
-
     def setupUi_Widgets(self):
         """
         Setup the Mainwindow. Make initial settings.
         """
         #TODO: Load the last import location from system-settings
+        self.progressBar = QProgressBar(visible=False)
+        self.statusbar.addPermanentWidget(self.progressBar)
+        #self.progressBar.setVisible(False)
         self.picturelocation = QDesktopServices.storageLocation(QDesktopServices.PicturesLocation)
 
         # Setup the TreeView (Fileviewer):
@@ -233,57 +196,86 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         self.tW_workbench.setDropIndicatorShown(True)
         self.tW_workbench.setColumnCount(4)
 
-        self.tW_workbench.setHorizontalHeaderLabels(['Preview', 'Filename', 'Size', ''])
+        self.tW_workbench.setHorizontalHeaderLabels([self.tr('Preview'),
+                                                     self.tr('Filename'),
+                                                     self.tr('Size'), ''])
 
-        items = [('/home/matthias/Bilder/test1.jpg',
-                  'Simone', str(os.path.getsize('/home/matthias/Bilder/test1.jpg')), 'BTN'),
-                 ('/home/matthias/Bilder/test2.jpg',
-                  'Willi', str(os.path.getsize('/home/matthias/Bilder/test2.jpg')), 'BTN'),
-                 ('/home/matthias/Bilder/test3.jpg',
-                  'Walter', str(os.path.getsize('/home/matthias/Bilder/test3.jpg')), 'BTN')]
-        for i, (path, name, size, btn) in enumerate(items):
-            c = QTableWidgetItem()
-            pic = QPixmap(path).scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            c.setData(Qt.DecorationRole, pic)
-            m = QTableWidgetItem(name)
-            n = QTableWidgetItem(size)
-            o = QTableWidgetItem(btn)
+        self.tW_workbench.horizontalHeader().setResizeMode(0, 100)             # preview
+        self.tW_workbench.horizontalHeader().setResizeMode(1, QHeaderView.Stretch)             # filename
+        self.tW_workbench.horizontalHeader().setResizeMode(2, QHeaderView.ResizeToContents)    # size
+        self.tW_workbench.horizontalHeader().setResizeMode(3, QHeaderView.Fixed)    # Button
+        self.tW_workbench.horizontalHeader().setDefaultSectionSize(100)
+        self.tW_workbench.horizontalHeader().setStretchLastSection(False)
 
-
-            self.tW_workbench.insertRow(self.tW_workbench.rowCount())
-            self.tW_workbench.setItem(i, 0, c)
-            self.tW_workbench.setItem(i, 1, m)
-            self.tW_workbench.setItem(i, 2, n)
-            self.tW_workbench.setItem(i, 3, o)
-
-        #item = QTableWidgetItem()
-        #pic = QPixmap("/home/matthias/Bilder/noteshring_qt_first_draft.png")
-        #small = pic.scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        #item.setData(Qt.DecorationRole, small)
-        #self.tW_workbench.setItem(0, 0, item)
 
         self.tW_workbench.resizeRowsToContents()    # enlarge the hight of the row, according to the preview
-
 
     def createActions(self):
         """
         Create Actions which are used in Toolbar, Menue and context-menues
         """
-        pass
 
+        self.ACTexit = QAction(QIcon(':/exit.png'), self.tr(u"&Exit"),self,
+                                 shortcut=QKeySequence.Quit,
+                                 statusTip=self.tr(u"Exit the Application"),
+                                 triggered=self.close)
+        self.ACTexit.setIconVisibleInMenu(True)
+
+        self.ACTremovePos = QAction(QIcon(':/remove_row.png'), self.tr(u"&Remove position(s)"),self,
+                                 shortcut=QKeySequence.Delete,
+                                 statusTip=self.tr(u"Removes the selected position(s)"),
+                                 triggered=self.tW_workbench.removeMarked)
+        self.ACTremovePos.setIconVisibleInMenu(True)
+
+        self.ACTaddPos = QAction(QIcon(':/add_row.png'), self.tr(u"&Add position(s)"),self,
+                                 statusTip=self.tr(u"Adds the selected position(s)"),
+                                 triggered=self.on_addPos)
+        self.ACTaddPos.setIconVisibleInMenu(True)
+
+        self.ACTmoveUp = QAction(QIcon(':/moveUp.png'), self.tr(u"&Move Up"),self,
+                                 statusTip=self.tr(u"Move the selected position UP"),
+                                 triggered=self.tW_workbench.moveUp)
+        self.ACTmoveUp.setIconVisibleInMenu(True)
+
+        self.ACTmoveDown = QAction(QIcon(':/moveDown.png'), self.tr(u"&RMove Down"),self,
+                                 statusTip=self.tr(u"Move the selected position DOWN"),
+                                 triggered=self.tW_workbench.moveDown)
+        self.ACTmoveDown.setIconVisibleInMenu(True)
 
     def createMenus(self):
         """
         Create the Mainwindow meneu   " Datei  |   Bearbeiten   |   Extras   |   Hilfe "
         :return:
         """
-        pass
+        self.fileMenu = self.menuBar().addMenu(self.tr("&File"))
+        self.fileMenu.addSeparator()
+        self.fileMenu.addAction(self.ACTexit)
+
+        self.editMenu = self.menuBar().addMenu(self.tr("&Edit"))
+        self.editMenu.addAction(self.ACTaddPos)
+        self.editMenu.addAction(self.ACTremovePos)
+        self.editMenu.addAction(self.ACTmoveUp)
+        self.editMenu.addAction(self.ACTmoveDown)
+
+        self.extrasMenu = self.menuBar().addMenu(self.tr("&Extras"))
+
+        self.menuBar().addSeparator()    # seems like there is no effect on Linux. (maybe on Windows..)
+
+        self.helpMenu = self.menuBar().addMenu(self.tr("&Help"))
 
     def createToolBars(self):
         """
         A single Toolbar is used.
         """
-        pass
+        self.fileToolBar = self.addToolBar("File")
+        self.fileToolBar.addAction(self.ACTaddPos)
+        self.fileToolBar.addAction(self.ACTremovePos)
+        self.fileToolBar.addAction(self.ACTmoveUp)
+        self.fileToolBar.addAction(self.ACTmoveDown)
+        self.spacer = QWidget()                          # add streching / invisible widget to separate following
+        self.spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.fileToolBar.addWidget(self.spacer)
+        self.fileToolBar.addAction(self.ACTexit)
 
     def createContextMenue(self, point):   # called with (table/tree)view.customContextMenuRequested
         """
@@ -299,8 +291,34 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         Is called with signal "selectionChanged" of tableView (selection Model)
         """
         #check remove Action (True if any index is selected)
-        pass
+        try:
+            self.ACTremovePos.setEnabled(True \
+                if len(self.tW_workbench.selectionModel().selectedRows()) > 0 \
+                                         else False)
+        except IndexError:
+            self.ACTremovePos.setEnabled(False)
 
+        #check add Action (True if any index is selected)
+        try:
+            self.ACTaddPos.setEnabled(True \
+                if len(self.tv_selectedFiles()) > 0 \
+                                         else False)
+        except IndexError:
+            self.ACTaddPos.setEnabled(False)
+
+        #check "Move Up / Move Down" only active it exactelly 1 is selected
+        try:
+            self.ACTmoveDown.setEnabled(True \
+                if len(self.tW_workbench.selectionModel().selectedRows()) >= 1 \
+                                         else False)
+            self.ACTmoveUp.setEnabled(True \
+                if len(self.tW_workbench.selectionModel().selectedRows()) >= 1 \
+                                         else False)
+        except IndexError:
+            self.ACTmoveDown.setEnabled(False)
+            self.ACTmoveUp.setEnabled(False)
+
+        pass
 
     def __moveCenter(self):
         """
@@ -314,7 +332,11 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         """
         Create permanent Connections. Other necessary connections are created dynamically in my engine
         """
-        pass
+        self.tW_workbench.itemSelectionChanged.connect(self.checkActions)   # Enable / Disable the button depending on selection
+        self.tW_workbench.sig_setProgressValue.connect(self.setProgressValue)   # Enable / Disable the button depending on selectionevent.accept()
+        self.tW_workbench.sig_filesAccepted.connect(self.tV_Fileview.clearSelection)   # Clear selection in tv after drop
+        self.tV_Fileview.selectionModel().selectionChanged.connect(self.checkActions)  # dangeroous for segfaults!?
+        self.sig_setProgressValue.connect(self.setProgressValue)
 
     ##################################################################################################Override built in
 
@@ -332,6 +354,11 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         QCloseEvent.accept()              # close Window
 
     ############################################################################################################# Slots
+
+    @pyqtSlot()                      #caller:      self.ACTaddPos
+    def on_addPos(self):
+
+        self.tW_workbench.addFiles(self.tv_selectedFiles())
 
     @pyqtSlot()                        #caller:      self.ACTprintCalc
     def printingDlg(self):
@@ -359,6 +386,18 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
 
     ###################################################################################################Helper Functions
 
+    def tv_selectedFiles(self, filters=["png","jpg","jpeg","gif"]):
+        selected_files = []
+        selected_indexes = self.tV_Fileview.selectedIndexes()
+        for index in selected_indexes:
+            filename = self.tV_Fileview.model().filePath(index)
+            if os.path.isfile(filename):
+                for entry in filters:
+                    if filename.endsWith(entry, Qt.CaseInsensitive):
+                        selected_files.append(filename)
+                        break
+        return selected_files
+
     @pyqtSlot()
     def showStatusBarText(self, text, time=5000):
         """
@@ -367,6 +406,39 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         :param time: int
         """
         self.statusBar().showMessage(text, time)
+
+    @pyqtSlot(int)
+    def setProgressValue(self, value):
+
+        if value == -1:                        #pulse
+            if self.progressBar.isHidden():
+                #app.setOverrideCursor(QCursor(Qt.WaitCursor))
+                self.progressBar.setVisible(True)
+            self.progressBar.setRange(0, 0)   #show busy
+        elif value >= 0 and value <= 99:
+
+            if self.progressBar.isHidden():
+                self.progressBar.setVisible(True)
+            self.progressBar.setRange(0, 100)
+            self.progressBar.setValue(value)
+            if value == 0:
+                if self.progressBar.isVisible():
+                    self.progressBar.setVisible(False)
+                #app.restoreOverrideCursor()
+            #else:
+                #app.setOverrideCursor(QCursor(Qt.WaitCursor))
+        elif value == 100:
+            print("Restore")
+            if self.progressBar.isHidden():
+                self.progressBar.setVisible(True)
+            self.progressBar.setRange(0, 100)
+            self.progressBar.setValue(100)
+            #app.processEvents()
+            self.showStatusBarText(self.tr("Finished!"))
+            QTimer.singleShot(1000, lambda: self.setProgressValue(0))
+            #app.restoreOverrideCursor()
+
+        #app.processEvents()
 
     @pyqtSlot()                        #caller:       self.engine (direct)   self.engine.view.model()
     def askQuestion(self, TITLE, TEXT1, BTN1, TEXT2=None, BTN2=None):
@@ -458,13 +530,8 @@ if __name__ == "__main__":
     app.installTranslator(qtTranslator)
 
     mytranslator = QTranslator()
-    user_lang = global_vars.configuration.get("GENERAL").get("language")
-    if user_lang is not None:
-        logger.info("Load Userspecific Language")
-        language = user_lang
-        mytranslator.load("local_{0}".format(language), os.path.join(cwd, "locale"))
-
-    #app.installTranslator(mytranslator)  # Installation will be handeled by the GUI
+    mytranslator.load("local_{0}".format(language), os.path.join(cwd, "locale"))
+    app.installTranslator(mytranslator)
 
     mainwindow = MainWindow()
     mainwindow.show()

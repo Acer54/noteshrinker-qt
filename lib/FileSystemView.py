@@ -30,17 +30,6 @@ class LM_QFileSystemModel(QFileSystemModel):
         self.directoryLoading.emit()
         return QFileSystemModel.fetchMore(self, QModelIndex)
 
-    def get_MP3_of_Folder_using_Index(self, QModelIndex):
-        childlist = []
-        #print(self.rowCount(QModelIndex))
-        for i in xrange(self.rowCount(QModelIndex)):
-            child = self.index(i,0, QModelIndex)
-            if self.filePath(child).endsWith('.mp3', cs=Qt.CaseInsensitive) \
-                    or self.filePath(child).endsWith('.ogg', cs=Qt.CaseInsensitive)\
-                    or self.filePath(child).endsWith('.oga', cs=Qt.CaseInsensitive):   # added flag "caseinsensitive"
-                childlist.append(child)
-        return childlist
-
     def get_childs(self, QModelIndex):
         childlist = []
         for i in xrange(self.rowCount(QModelIndex)):

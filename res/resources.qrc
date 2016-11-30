@@ -9,5 +9,6 @@
 <file alias="settings.png">icons/settings.png</file>
 <file alias="moveUp.png">icons/moveUp.png</file>
 <file alias="moveDown.png">icons/moveDown.png</file>
+<file alias="addfromfolder.png">icons/addfromfolder.png</file>
 </qresource>
 </RCC>

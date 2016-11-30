@@ -1,4 +1,6 @@
 import sys, os
+from argparse import Namespace
+from copy import deepcopy
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
 
@@ -28,6 +30,95 @@ class Workbench_Tablewidget(QTableWidget):
         # self.setSelectionMode(QAbstractItemView.SingleSelection) # multiple rows can be selected for drag or removal
         #======================= Variables ===========================================================================#
         self.last_drop_row = None
+        self.generalOption = self.empty_default_options()
+        self.global_active = False
+
+    def empty_default_options(self):
+        '''
+        Initial "empty" options, representing the default values of noteshrink (without filename!)
+        :return: Namespace-Obj (argparse)
+        '''
+        return Namespace(basename='page', filenames=[], global_palette=False,
+                         num_colors=8, pdf_cmd='convert %i %o', pdfname='output.pdf', postprocess_cmd=None,
+                         postprocess_ext='_post.png', quiet=False, sample_fraction=0.05, sat_threshold=0.2,
+                         saturate=True, sort_numerically=True, value_threshold=0.25, white_bg=False)
+
+    def set_global_option(self, namespace_obj):
+        '''
+        Takes a namespace_object, extracts the filename and sets the rest to all listed Items in the workbench.
+        The filename is replaced with the unique on.
+        :param namespace_obj: Namespace()
+        :return: True / False
+        '''
+        # get the cleaned Namespace obj (without filename) (deepcopy) for self.generalOption (affecting all new)
+        # list all items,
+        # iter over each item and set the new option including the correct filename
+        # set self.global_active to True
+        # return True if it was successful
+        return True
+
+    def is_global_aktive(self):
+        '''
+        self.global_active is only a softwareswith, holding the state of "Apply_to_all" Button
+        :return: True or False, depending on the state
+        '''
+        return self.global_active
+
+    def unset_global_active(self):
+        '''
+        Setting the defaults back to standard (does only affect new items)
+        :return: True
+        '''
+        self.generalOption = self.empty_default_options()   #set the standard-default values for ne items
+        self.global_active = False
+        return True
+
+    def reset_option(self, item):
+        '''
+        Take an item and resetting his options to the programm defaults.
+        :param item:
+        :return: True / False
+        '''
+        # extract the options obj.
+        # set empty default with the right filename
+        return True
+
+    def reset_all(self):
+        '''
+        Reset all listed items (this is called when "self.global_active" is True)
+        :return: True / False
+        '''
+        # iter over each item and reset the option (self.reset_option())
+
+        return True
+
+    def get_selected_Item(self, pic_or_name):
+        '''
+        Returns the currently selected Item (pic or name) of the current selected row. But only if there is exactely
+        one.
+        :param pic_or_name: str()
+        :return: QTablewidgetItem()
+        '''
+        # do not provide if more than one is selected or if nothing is selected
+        if len(self.getselectedRowsFast()) > 1 or len(self.getselectedRowsFast()) == 0:
+            return list()
+        # this is only executed if there is exactly one selected item
+        if pic_or_name == "name":
+            for item in self.selectedItems():
+                if item.column() == 1:  # choose the "Name" Item
+                    nameItem = item
+                    break
+            else:
+                return False
+            return nameItem
+        elif pic_or_name == "pic":
+            for item in self.selectedItems():
+                if item.column() == 0:  # choose the "picture" Item
+                    pictureItem = item
+                    break
+            else:
+                return False
+            return pictureItem
 
     def renumberHeader(self, *args):
 
@@ -84,33 +175,51 @@ class Workbench_Tablewidget(QTableWidget):
 
     def addFiles(self, filepathslist):
         '''
-        Takes a list with Filenames and creates new rows and populate with the given data
-        :param filepathslist: [PyQt4.QtCore.QUrl(u'file:///home/matthias/Bilder/test1.jpg')]
+        Takes a list with Filepathes or Folderpathes and creates new rows and populate with the given data
+        :param filepathslist: [PyQt4.QtCore.QUrl(u'file:///home/matthias/Bilder/test1.jpg')]  or QString or str list
         :return:
         '''
         if len(filepathslist) == 0:
             return False
 
+        additionalFilePaths = []
+        for j, path in enumerate(filepathslist):
+            if isinstance(path, QUrl):
+                path = path.toLocalFile()   # convert filepath from QUrl to a QString
+            if not os.path.isfile(unicode(path)):           #if a folder is included
+                filepathslist.pop(j)   # remove the folder path from filelist
+                for filetocheck in os.listdir(unicode(path)):
+                    print("Check:", filetocheck)
+                    if filetocheck.endswith(tuple(['.png', '.jpg', '.jpeg', '.gif', '.PNG', '.JPG', '.JPEG', '.GIF'])):
+                        print("adding", os.path.join(unicode(path), unicode(filetocheck)))
+                        additionalFilePaths.append(os.path.join(unicode(path), unicode(filetocheck)))
+
+        filepathslist = filepathslist + additionalFilePaths
+
+
         for i, file in enumerate(filepathslist):
             self.sig_setProgressValue.emit(100/len(filepathslist) * i)
             if isinstance(file, QUrl):
                 file = file.toLocalFile()   # convert filepath from QUrl to a QString
-            if not os.path.isfile(file):
-                continue   # override dirs!
+            if not os.path.isfile(unicode(file)):
+               continue   # override dirs!  just to be sure
 
             i = self.rowCount()
             # Load Picture:
             pic = QPixmap(file).scaled(100, 100, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             picture_entry = QTableWidgetItem()
             picture_entry.setData(Qt.DecorationRole, pic)
+            picture_entry.setData(Qt.UserRole, [None, None])   # there is no valid preview
 
             # Load Name:
             name = os.path.basename(unicode(file))
             name_entry = QTableWidgetItem(name)
-            name_entry.setData(Qt.UserRole, file)
+            options = deepcopy(self.generalOption)  # Namespace(basename='page', filenames=[unicode(file)], global_palette=False,
+            options.filenames = [unicode(file)]
+            name_entry.setData(Qt.UserRole, options)
 
             # Calculate Size
-            size = self.humansize(os.path.getsize(file))
+            size = self.humansize(os.path.getsize(unicode(file)))
             size_entry = QTableWidgetItem(size)
 
             # Create a "Delete-Button"
@@ -175,6 +284,7 @@ class Workbench_Tablewidget(QTableWidget):
             for j in range(self.columnCount()):
                 cellWidget = None
                 item = self.item(srow, j)
+                #TODO: Maybe Data have to be saved here ??? > Preview Image, Options-Data, md5_hash aso.
                 if item is None:
                     cellWidget = self.cellWidget(srow, j)
                 if item:

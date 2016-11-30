@@ -10,17 +10,23 @@ bleedthrough, etc.
 
 from __future__ import print_function
 
-import sys
+import numpy as np
 import os
 import re
-import subprocess
 import shlex
+import subprocess
+import sys
+#from PIL import Image    # we do not need PIL, we use QImage (PyQt)
 
 from argparse import ArgumentParser
-
-import numpy as np
-from PIL import Image
 from scipy.cluster.vq import kmeans, vq
+
+from PyQt4.QtGui import QImage, qRgb
+from PyQt4.QtCore import Qt
+
+import lib.qimage2ndarray as q2n   #lib for converting np.arrays to QImages and back
+
+
 
 ######################################################################
 
@@ -308,27 +314,26 @@ pages ordered correctly.
 
 ######################################################################
 
-def load(input_filename):
+def load(input_filename, height):
 
     '''Load an image with Pillow and convert it to numpy array. Also
 returns the image DPI in x and y as a tuple.'''
 
     try:
-        pil_img = Image.open(input_filename)
+        #pil_img = Image.open(input_filename)
+        pil_img = QImage(input_filename)
+        if pil_img.height() > height:     #if the picture is larger than the requested max-height, scale it.
+            pil_img = pil_img.scaledToHeight(height, Qt.SmoothTransformation)
+
     except IOError:
         sys.stderr.write('warning: error opening {}\n'.format(
             input_filename))
         return None, None
 
-    if pil_img.mode != 'RGB':
-        pil_img = pil_img.convert('RGB')
+    dpi = (300, 300)
 
-    if 'dpi' in pil_img.info:
-        dpi = pil_img.info['dpi']
-    else:
-        dpi = (300, 300)
-
-    img = np.array(pil_img)
+    #img = np.array(pil_img)
+    img = q2n.rgb_view(pil_img)
 
     return img, dpi
 
@@ -451,9 +456,19 @@ the background color to pure white.
         palette = palette.copy()
         palette[0] = (255, 255, 255)
 
-    output_img = Image.fromarray(labels, 'P')
-    output_img.putpalette(palette.flatten())
-    output_img.save(output_filename, dpi=dpi)
+    #output_img = Image.fromarray(labels, 'P')    #QImage.fromData(QByteArray, Format)
+    #output_img.putpalette(palette.flatten())
+    #output_img.save(output_filename, dpi=dpi)
+
+    QtImage = q2n.gray2qimage(labels, False)
+
+    nestedColorMap = palette
+    colors = []
+    for color in nestedColorMap:
+        r, g, b = color
+        colors.append(qRgb(r, g, b))
+    QtImage.setColorTable(colors)
+    QtImage.save(output_filename)
 
 ######################################################################
 
@@ -579,9 +594,48 @@ def notescan_main(options):
 
 ######################################################################
 
+def create_preview(input_filename, height, options):
+    '''
+    Create a preview using the given parameters of param "options".
+    :param input_filename: valid Filename (String)   Note: This will not be checked
+    :param options: Namespace object like from args.parse()
+    :return: QImage-Object
+    '''
+    #print("Loading Preview for:", input_filename, height, options)
+    img, dpi = load(input_filename, height)
+
+    samples = sample_pixels(img, options)
+    palette = get_palette(samples, options)
+
+    labels = apply_palette(img, palette, options)
+
+    if options.saturate:
+        palette = palette.astype(np.float32)
+        pmin = palette.min()
+        pmax = palette.max()
+        palette = 255 * (palette - pmin)/(pmax-pmin)
+        palette = palette.astype(np.uint8)
+
+    if options.white_bg:
+        palette = palette.copy()
+        palette[0] = (255, 255, 255)
+
+    QtImage = q2n.gray2qimage(labels, False)
+
+    nestedColorMap = palette
+    colors = []
+    for color in nestedColorMap:
+        r, g, b = color
+        colors.append(qRgb(r, g, b))
+    QtImage.setColorTable(colors)
+
+    return QtImage
+
+
 def main():
     '''Parse args and call notescan_main().'''
     notescan_main(options=get_argument_parser().parse_args())
 
 if __name__ == '__main__':
-    main()
+    #main()
+    print(get_argument_parser().parse_args())

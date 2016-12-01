@@ -140,6 +140,11 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         self.setupUi(self)  #TODO: Load UI File directelly after dev
         self.lastlocation = None    # filepath to the last opened location if existing  (loaded from settings)
         self.changedValue = None    # this is a variable for remembering initial values when a slider is moved
+        self.trigger = QTimer()
+        self.trigger.setSingleShot(True)
+        self.trigger.setInterval(1000)  # one sec.
+        self.trigger.timeout.connect(self.sig_settingsChanged.emit)
+        self.block_trigger = False
         self.setWindowIcon(self.generateIcon())
         self.setupUi_Widgets()
         self.createActions()
@@ -192,12 +197,13 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         self.hS_resulting_colors.setMaximum(20)
         self.hS_resulting_colors.setTickInterval(1)
         self.hS_resulting_colors.setTickPosition(QSlider.TicksBelow)
-        #self.hS_resulting_colors.setTracking(False)
+        self.hS_resulting_colors.setPageStep(2)
+
         self.hS_percentage_of_pixels.setMinimum(1)
         self.hS_percentage_of_pixels.setMaximum(20)
         self.hS_percentage_of_pixels.setTickInterval(1)
         self.hS_percentage_of_pixels.setTickPosition(QSlider.TicksBelow)
-        #self.hS_percentage_of_pixels.setTracking(False)
+        self.hS_percentage_of_pixels.setPageStep(2)
 
         #self.hS_background_saturation.setValue()
         #self.hS_background_threshold.setValue()
@@ -391,12 +397,20 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         #connect the sliders ... remember the value on pressed and compare with value from released sig
         self.hS_resulting_colors.sliderPressed.connect(self.on_slider_clicked)
         self.hS_resulting_colors.sliderReleased.connect(self.on_slider_released)
+        self.hS_resulting_colors.valueChanged.connect(self.on_slider_value_changed)
+
         self.hS_percentage_of_pixels.sliderPressed.connect(self.on_slider_clicked)
         self.hS_percentage_of_pixels.sliderReleased.connect(self.on_slider_released)
+        self.hS_percentage_of_pixels.valueChanged.connect(self.on_slider_value_changed)
+
         self.hS_background_saturation.sliderPressed.connect(self.on_slider_clicked)
         self.hS_background_saturation.sliderReleased.connect(self.on_slider_released)
+        self.hS_background_saturation.valueChanged.connect(self.on_slider_value_changed)
+
         self.hS_background_threshold.sliderPressed.connect(self.on_slider_clicked)
         self.hS_background_threshold.sliderReleased.connect(self.on_slider_released)
+        self.hS_background_threshold.valueChanged.connect(self.on_slider_value_changed)
+
         self.pB_apply_to_all.clicked.connect(self.on_apply_to_all)
         self.pB_reset_to_default.clicked.connect(self.on_reset_to_default)
 
@@ -428,6 +442,7 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
     @pyqtSlot()
     def on_slider_clicked(self):
         self.changedValue = self.sender().value()
+        self.block_trigger = True
 
     @pyqtSlot()
     def on_slider_released(self):
@@ -436,6 +451,15 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
             self.changedValue = None
         else:
             self.changedValue = None
+        self.block_trigger = False
+
+    @pyqtSlot(int)
+    def on_slider_value_changed(self, int_new):
+        if self.block_trigger:
+            return
+        if self.trigger.isActive():
+            self.trigger.stop()   #reset a running timer, wait 1 sec. and after this, trigger the changed options
+        self.trigger.start()
 
     @pyqtSlot()
     def on_apply_to_all(self):
@@ -485,8 +509,8 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         '''
         pass
 
-    @pyqtSlot()
-    def update_preview(self):          #caller:      tW_workbench.itemSelectionChanged
+    @pyqtSlot()                       #caller:      tW_workbench.itemSelectionChanged
+    def update_preview(self):
         # do not provide a preview area if more than one is selected or if nothing is selected
         if len(self.tW_workbench.getselectedRowsFast()) > 1 or len(self.tW_workbench.getselectedRowsFast()) == 0:
             #delete preview and hide preview-area
@@ -494,6 +518,13 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
                 self.gB_preview.hide()
             if self.gB_settings.isEnabled():
                 self.gB_settings.setDisabled(True)
+                self.block_trigger = True  # stop the trigger for changed values otherwise one additional preview is calculated
+                self.lE_filename_base.setText("")
+                self.hS_resulting_colors.setValue(2)  # int value
+                self.hS_percentage_of_pixels.setValue(0)   # transform percent value
+                self.hS_background_saturation.setValue(0)    # transform percent value
+                self.hS_background_threshold.setValue(0)   # transform percent value
+                self.block_trigger = False  # set the trigger active again
             return
 
         nameItem = self.tW_workbench.get_selected_Item("name")
@@ -528,15 +559,13 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         #================================================== Update Settings =====================================#
         if not self.gB_settings.isEnabled():
             self.gB_settings.setEnabled(True)
-        #Namespace(basename='page', filenames=[], global_palette=False,
-        #                 num_colors=8, pdf_cmd='convert %i %o', pdfname='output.pdf', postprocess_cmd=None,
-        #                 postprocess_ext='_post.png', quiet=False, sample_fraction=0.05, sat_threshold=0.2,
-        #                 saturate=True, sort_numerically=True, value_threshold=0.25, white_bg=False)
+        self.block_trigger = True  # stop the trigger for changed values otherwise one additional preview is calculated
         self.lE_filename_base.setText(options.basename)
         self.hS_resulting_colors.setValue(options.num_colors)  # int value
         self.hS_percentage_of_pixels.setValue(options.sample_fraction * 100)   # transform percent value
         self.hS_background_saturation.setValue(options.sat_threshold * 100)    # transform percent value
         self.hS_background_threshold.setValue(options.value_threshold * 100)   # transform percent value
+        self.block_trigger = False  # set the trigger active again
 
     @pyqtSlot()
     def on_sig_settingsChanged(self):

@@ -322,7 +322,7 @@ returns the image DPI in x and y as a tuple.'''
     try:
         #pil_img = Image.open(input_filename)
         pil_img = QImage(input_filename)
-        if pil_img.height() > height:     #if the picture is larger than the requested max-height, scale it.
+        if pil_img.height() > height and not height == -1:     #if the picture is larger than the requested max-height, scale it.
             pil_img = pil_img.scaledToHeight(height, Qt.SmoothTransformation)
 
     except IOError:

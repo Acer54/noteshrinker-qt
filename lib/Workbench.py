@@ -38,7 +38,7 @@ class Workbench_Tablewidget(QTableWidget):
         Initial "empty" options, representing the default values of noteshrink (without filename!)
         :return: Namespace-Obj (argparse)
         '''
-        return Namespace(basename='page', filenames=[], global_palette=False,
+        return Namespace(basename='_optimized', filenames=[], global_palette=False,
                          num_colors=8, pdf_cmd='convert %i %o', pdfname='output.pdf', postprocess_cmd=None,
                          postprocess_ext='_post.png', quiet=False, sample_fraction=0.05, sat_threshold=0.2,
                          saturate=True, sort_numerically=True, value_threshold=0.25, white_bg=False)
@@ -119,6 +119,23 @@ class Workbench_Tablewidget(QTableWidget):
             else:
                 return False
             return pictureItem
+
+    def get_all_items(self, pic_or_name):
+        # do not provide if more than one is selected or if nothing is selected
+        if self.rowCount() == 0:
+            return list()
+        # this is only executed if there is exactly one selected item
+        items = []
+        if pic_or_name == "name":
+            for row in range(0, self.rowCount()):
+                nameitem = self.item(row, 1)
+                items.append(nameitem)
+            return items
+        elif pic_or_name == "pic":
+            for row in range(0, self.rowCount()):
+                nameitem = self.item(row, 0)
+                items.append(nameitem)
+            return items
 
     def renumberHeader(self, *args):
 

@@ -140,10 +140,17 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         self.setupUi(self)  #TODO: Load UI File directelly after dev
         self.lastlocation = None    # filepath to the last opened location if existing  (loaded from settings)
         self.changedValue = None    # this is a variable for remembering initial values when a slider is moved
+        # Timer update the preview when a slider is moved (after one sec. without movement)
         self.trigger = QTimer()
         self.trigger.setSingleShot(True)
         self.trigger.setInterval(1000)  # one sec.
         self.trigger.timeout.connect(self.sig_settingsChanged.emit)
+        # Timer update Preview on resizeEvent (after 500ms)
+        self.resize_trigger = QTimer()
+        self.resize_trigger.setSingleShot(True)
+        self.resize_trigger.setInterval(500)  # one sec.
+        self.resize_trigger.timeout.connect(self.update_preview)
+
         self.block_trigger = False
         self.setWindowIcon(self.generateIcon())
         self.setupUi_Widgets()
@@ -190,6 +197,7 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         self.lbl_preview.setText("")        # delete "preview... "
         self.gB_preview.hide()              # initially hide the preview box
         self.gB_settings.setDisabled(True)  # initially disable the settings box
+        self.gB_settings_details.setDisabled(True)  # initially disable the settings box details (qSlider)
 
         #setup Settings Area
         self.pB_apply_to_all.setCheckable(True)   #Button "Apply to all" is switch and have to keep its setting
@@ -371,7 +379,20 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
             self.ACTmoveDown.setEnabled(False)
             self.ACTmoveUp.setEnabled(False)
 
-        pass
+        #check if there is anything in the workbench and enable the settings area
+        try:
+            self.gB_settings.setEnabled(True \
+                if self.tW_workbench.rowCount() >= 1 \
+                                         else False)
+        except IndexError:
+            self.gB_settings.setEnabled(False)
+
+        if self.cB_create_images.isChecked() or \
+                self.cB_create_merged_pdf.isChecked() or \
+                self.cB_create_single_pdf.isChecked():
+            self.pB_go.setEnabled(True)
+        else:
+            self.pB_go.setEnabled(False)
 
     def __moveCenter(self):
         """
@@ -390,9 +411,15 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         self.tW_workbench.sig_setProgressValue.connect(self.setProgressValue)   # Enable / Disable the button depending on selectionevent.accept()
         self.tW_workbench.sig_filesAccepted.connect(self.tV_Fileview.clearSelection)   # Clear selection in tv after drop
         self.tV_Fileview.selectionModel().selectionChanged.connect(self.checkActions)  # dangeroous for segfaults!?
+        self.cB_create_images.stateChanged.connect(self.checkActions)        #enable or disable the go-button
+        self.cB_create_single_pdf.stateChanged.connect(self.checkActions)    #enable or disable the go-button
+        self.cB_create_merged_pdf.stateChanged.connect(self.checkActions)    #enable or disable the go-button
         self.sig_setProgressValue.connect(self.setProgressValue)
         self.sig_settingsChanged.connect(self.on_sig_settingsChanged)
         self.splitter.splitterMoved.connect(self.handleSplitter)
+        self.pB_go.clicked.connect(self.on_go)
+        #self.lE_filename_base.textChanged.connect(self.sig_settingsChanged.emit)
+        self.lE_filename_base.editingFinished.connect(self.sig_settingsChanged.emit)
 
         #connect the sliders ... remember the value on pressed and compare with value from released sig
         self.hS_resulting_colors.sliderPressed.connect(self.on_slider_clicked)
@@ -429,6 +456,12 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
 
         QCloseEvent.accept()              # close Window
 
+    def resizeEvent(self, qResizeEvent):
+        if self.resize_trigger.isActive():
+            self.resize_trigger.stop()   #reset a running timer, wait 500ms and after this, trigger the new preview
+        self.resize_trigger.start()  # after 500ms the new preview is generated (resized)
+        return QMainWindow.resizeEvent(self, qResizeEvent)
+
     ############################################################################################################# Slots
 
     @pyqtSlot()                      #caller:      self.ACTaddPos
@@ -447,6 +480,7 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
     @pyqtSlot()
     def on_slider_released(self):
         if self.changedValue != self.sender().value():
+            print("Slider released")
             self.sig_settingsChanged.emit()
             self.changedValue = None
         else:
@@ -478,7 +512,7 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         :return: True if the user selected one, else False
         '''
         path = unicode(QFileDialog.getExistingDirectory(self, self.tr("Please select a folder to be added:"),
-                                                        self.picturelocation or self.lastlocation))
+                                                        self.lastlocation or self.picturelocation))
         if path:
             self.tW_workbench.addFiles([path])  # add a list of files (basically only a list with one folder-path)
             return True
@@ -511,13 +545,14 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
 
     @pyqtSlot()                       #caller:      tW_workbench.itemSelectionChanged
     def update_preview(self):
+        print("Update Preview")
         # do not provide a preview area if more than one is selected or if nothing is selected
         if len(self.tW_workbench.getselectedRowsFast()) > 1 or len(self.tW_workbench.getselectedRowsFast()) == 0:
             #delete preview and hide preview-area
             if self.gB_preview.isVisible():
                 self.gB_preview.hide()
-            if self.gB_settings.isEnabled():
-                self.gB_settings.setDisabled(True)
+            if self.gB_settings_details.isEnabled():
+                self.gB_settings_details.setDisabled(True)
                 self.block_trigger = True  # stop the trigger for changed values otherwise one additional preview is calculated
                 self.lE_filename_base.setText("")
                 self.hS_resulting_colors.setValue(2)  # int value
@@ -533,10 +568,16 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         if not pictureItem: return False
         #=================================================== Update Preview ==========================================#
         options = nameItem.data(Qt.UserRole).toPyObject()    # Namespace-Object
-        preview_image, md5_read = pictureItem.data(Qt.UserRole).toPyObject()    # Namespace-Object
+        preview_image, md5_read = pictureItem.data(Qt.UserRole).toPyObject()    # [QImage, Namespace-Object]
 
         self.sig_setProgressValue.emit(-1)   # switch prograss bar to pulsing
-        md5_needed = hashlib.md5(json.dumps(options.__dict__, sort_keys=True)).hexdigest()
+        complete_data = options.__dict__
+        relavant_data = {}
+        relavant_data.update({'sat_threshold': complete_data.get('sat_threshold')})
+        relavant_data.update({'value_threshold': complete_data.get('value_threshold')})
+        relavant_data.update({'sample_fraction': complete_data.get('sample_fraction')})
+        relavant_data.update({'num_colors': complete_data.get('num_colors')})
+        md5_needed = hashlib.md5(json.dumps(relavant_data, sort_keys=True)).hexdigest()
 
         if md5_read != md5_needed:
             logger.debug("Creating new Preview-Image for file: {0}".format(options.filenames[0].encode("utf-8")))
@@ -557,9 +598,10 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
             self.sig_setProgressValue.emit(100)   # switch prograss bar to finished
 
         #================================================== Update Settings =====================================#
-        if not self.gB_settings.isEnabled():
-            self.gB_settings.setEnabled(True)
         self.block_trigger = True  # stop the trigger for changed values otherwise one additional preview is calculated
+        if not self.gB_settings_details.isEnabled():
+            self.gB_settings_details.setEnabled(True)
+
         self.lE_filename_base.setText(options.basename)
         self.hS_resulting_colors.setValue(options.num_colors)  # int value
         self.hS_percentage_of_pixels.setValue(options.sample_fraction * 100)   # transform percent value
@@ -569,7 +611,6 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
 
     @pyqtSlot()
     def on_sig_settingsChanged(self):
-        print("Update Settings")
         nameItem = self.tW_workbench.get_selected_Item("name")
         if not nameItem: return False
         OLDoptions = nameItem.data(Qt.UserRole).toPyObject()
@@ -618,6 +659,20 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
             if self.handler_button.arrowType() != Qt.LeftArrow:
                 self.handler_button.setArrowType(Qt.LeftArrow)
 
+    @pyqtSlot()                                # caller             self.pb_go.clicked()
+    def on_go(self):
+        logger.info("Starting Generation (GO!)")
+        createPic = self.cB_create_images.isChecked()
+        createSinglePDF = self.cB_create_single_pdf.isChecked()
+        createMergedPDF = self.cB_create_merged_pdf.isChecked()
+
+
+        target_path = unicode(QFileDialog.getExistingDirectory(self, self.tr("Please select a folder where to save output:"),
+                                                        self.lastlocation or self.picturelocation))
+        #TODO: Need a worker here
+        self.generateOutput(createPic, createSinglePDF, createMergedPDF, target_path)
+
+
     ###################################################################################################Helper Functions
 
     def tv_selectedFiles(self, filters=["png","jpg","jpeg","gif"]):
@@ -640,9 +695,41 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         :param height: the maximum height for the preview
         :return: QImage, md5_hash(from options-obj)
         '''
-        md5_hash = hashlib.md5(json.dumps(options.__dict__, sort_keys=True)).hexdigest()   # the md5 hash of the QTablewidgetItem
+        complete_data = options.__dict__
+        relavant_data = {}
+        relavant_data.update({'sat_threshold': complete_data.get('sat_threshold')})
+        relavant_data.update({'value_threshold': complete_data.get('value_threshold')})
+        relavant_data.update({'sample_fraction': complete_data.get('sample_fraction')})
+        relavant_data.update({'num_colors': complete_data.get('num_colors')})
+        md5_hash = hashlib.md5(json.dumps(relavant_data, sort_keys=True)).hexdigest()   # the md5 hash of the QTablewidgetItem
         previewImage = create_preview(options.filenames[0], height, options)
         return previewImage, md5_hash
+
+    def generateOutput(self, createPic, createSinglePDF, createMergedPDF, output_dir):
+
+        items = self.tW_workbench.get_all_items("name")
+        if createPic:
+            for item in items:
+                options = item.data(Qt.UserRole).toPyObject()    # Namespace-Object
+                FullsizeImage = create_preview(options.filenames[0], -1, options)
+                target_file = "{0}{1}{2}".format(os.path.splitext(os.path.basename(options.filenames[0].encode("utf-8")))[0],
+                                         options.basename,
+                                         os.path.splitext(os.path.basename(options.filenames[0].encode("utf-8")))[1])
+
+                path_to_save = os.path.join(output_dir, str(target_file).decode("utf-8"))
+                logger.info("Save file {0} to {1}".format(options.filenames[0].encode("utf-8"),
+                                                          path_to_save.encode("utf-8")))
+                FullsizeImage.save(path_to_save)
+                # FUCK YOU ! UTF-8 ... damn shit
+
+        if createSinglePDF:
+            for item in items:
+                print("Create Single PDF")
+        
+        if createMergedPDF:
+            for item in items:
+                print("Create Merged PDF")
+
 
     @pyqtSlot()
     def showStatusBarText(self, text, time=5000):

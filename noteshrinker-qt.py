@@ -669,8 +669,13 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
 
         target_path = unicode(QFileDialog.getExistingDirectory(self, self.tr("Please select a folder where to save output:"),
                                                         self.lastlocation or self.picturelocation))
-        #TODO: Need a worker here
-        self.generateOutput(createPic, createSinglePDF, createMergedPDF, target_path)
+        thread = WorkerThread(self.generateOutput, createPic, createSinglePDF, createMergedPDF, target_path)
+        self.sig_setProgressValue.emit(-1)   # switch prograss bar to pulsing
+        thread.start()
+        while not thread.isFinished():
+            app.processEvents()   # update the viewport during calculation and avoid inresponsive window
+        #self.generateOutput(createPic, createSinglePDF, createMergedPDF, target_path)
+        self.sig_setProgressValue.emit(100)   # switch prograss bar to pulsing
 
 
     ###################################################################################################Helper Functions
@@ -708,27 +713,76 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
     def generateOutput(self, createPic, createSinglePDF, createMergedPDF, output_dir):
 
         items = self.tW_workbench.get_all_items("name")
-        if createPic:
-            for item in items:
+        for item in items:
+            options = item.data(Qt.UserRole).toPyObject()    # Namespace-Object
+            FullsizeImage = create_preview(options.filenames[0], -1, options)
+            target_ext = os.path.splitext(os.path.basename(options.filenames[0].encode("utf-8")))[1]
+            target_ext_pdf = ".pdf"
+            if target_ext == ".gif" or target_ext == ".GIF":  #QImage does not support write to GIF
+                target_ext = ".jpg"    #TODO: Gifs have soft red background when converted to jpg or png ??
+            target_file = "{0}{1}{2}".format(os.path.splitext(os.path.basename(options.filenames[0].encode("utf-8")))[0],
+                                     options.basename,
+                                     target_ext)
+            target_file_pdf = "{0}{1}{2}".format(os.path.splitext(os.path.basename(options.filenames[0].encode("utf-8")))[0],
+                                     options.basename,
+                                     target_ext_pdf)
+
+            path_to_save = os.path.join(output_dir, str(target_file).decode("utf-8"))
+            path_to_save_pdf = os.path.join(output_dir, str(target_file_pdf).decode("utf-8"))
+            logger.info("Save file {0} to {1}".format(options.filenames[0].encode("utf-8"),
+                                                          path_to_save.encode("utf-8")))
+
+            if createPic:
+                FullsizeImage.save(path_to_save)
+
+            if createSinglePDF:
+                print("single")
+                printer = QPrinter()
+                printer.setPageSize(QPrinter.A4)
+                printer.setOutputFormat(QPrinter.PdfFormat)
+                printer.setOutputFileName(path_to_save_pdf)
+                painter = QPainter(printer)
+                painter.setRenderHint(QPainter.Antialiasing)
+                rect = painter.viewport()
+                size = FullsizeImage.size()
+                size.scale(rect.size(), Qt.KeepAspectRatio)
+                painter.setViewport(rect.x(), rect.y(),
+                size.width(), size.height())
+                painter.setWindow(FullsizeImage.rect())
+                painter.drawImage(0, 0, FullsizeImage)
+                painter.end()
+                del printer
+
+        if createMergedPDF:
+            print("Merged")
+            printer = QPrinter()
+            printer.setPageSize(QPrinter.A4)
+            printer.setOutputFormat(QPrinter.PdfFormat)
+
+            target_ext = ".pdf"
+            target_file = "{0}{1}".format("merged",target_ext)
+            path_to_save = os.path.join(output_dir, str(target_file).decode("utf-8"))
+
+            printer.setOutputFileName(path_to_save)
+            painter = QPainter(printer)
+            painter.setRenderHint(QPainter.Antialiasing)
+            rect = painter.viewport()
+
+            for i, item in enumerate(items):
                 options = item.data(Qt.UserRole).toPyObject()    # Namespace-Object
                 FullsizeImage = create_preview(options.filenames[0], -1, options)
-                target_file = "{0}{1}{2}".format(os.path.splitext(os.path.basename(options.filenames[0].encode("utf-8")))[0],
-                                         options.basename,
-                                         os.path.splitext(os.path.basename(options.filenames[0].encode("utf-8")))[1])
+                size = FullsizeImage.size()
+                size.scale(rect.size(), Qt.KeepAspectRatio)
+                painter.setViewport(rect.x(), rect.y(), size.width(), size.height())
+                painter.setWindow(FullsizeImage.rect())
+                painter.drawImage(0, 0, FullsizeImage)
+                if i < (len(items) -1):
+                    printer.newPage()
 
-                path_to_save = os.path.join(output_dir, str(target_file).decode("utf-8"))
-                logger.info("Save file {0} to {1}".format(options.filenames[0].encode("utf-8"),
-                                                          path_to_save.encode("utf-8")))
-                FullsizeImage.save(path_to_save)
-                # FUCK YOU ! UTF-8 ... damn shit
+            painter.end()
 
-        if createSinglePDF:
-            for item in items:
-                print("Create Single PDF")
-        
-        if createMergedPDF:
-            for item in items:
-                print("Create Merged PDF")
+
+
 
 
     @pyqtSlot()

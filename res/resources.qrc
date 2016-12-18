@@ -10,5 +10,15 @@
 <file alias="moveUp.png">icons/moveUp.png</file>
 <file alias="moveDown.png">icons/moveDown.png</file>
 <file alias="addfromfolder.png">icons/addfromfolder.png</file>
+<file alias="16x16.png">16x16.png</file>
+<file alias="22x22.png">22x22.png</file>
+<file alias="24x24.png">24x24.png</file>
+<file alias="32x32.png">32x32.png</file>
+<file alias="48x48.png">48x48.png</file>
+<file alias="64x64.png">64x64.png</file>
+<file alias="96x96.png">96x96.png</file>
+<file alias="128x128.png">128x128.png</file>
+<file alias="192x192.png">192x192.png</file>
+<file alias="256x256.png">256x256.png</file>
 </qresource>
 </RCC>

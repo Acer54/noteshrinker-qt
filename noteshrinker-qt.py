@@ -171,16 +171,17 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         :return: QIcon with different sizes (used as an application icon)
         '''
         app_icon = QIcon()
-        app_icon.addFile(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'res', '16x16.png'), QSize(16, 16))
-        app_icon.addFile(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'res', '22x22.png'), QSize(22, 22))
-        app_icon.addFile(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'res', '24x24.png'), QSize(24, 24))
-        app_icon.addFile(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'res', '32x32.png'), QSize(32, 32))
-        app_icon.addFile(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'res', '48x48.png'), QSize(48, 48))
-        app_icon.addFile(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'res', '64x64.png'), QSize(64, 64))
-        app_icon.addFile(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'res', '96x96.png'), QSize(96, 96))
-        app_icon.addFile(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'res', '128x128.png'), QSize(128, 128))
-        app_icon.addFile(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'res', '192x192.png'), QSize(192, 192))
-        app_icon.addFile(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'res', '256x256.png'), QSize(256, 256))
+        #load app icon from resources-file
+        app_icon.addFile(':/16x16.png', QSize(16, 16))
+        app_icon.addFile(':/22x22.png', QSize(22, 22))
+        app_icon.addFile(':/24x24.png', QSize(24, 24))
+        app_icon.addFile(':/32x32.png', QSize(32, 32))
+        app_icon.addFile(':/48x48.png', QSize(48, 48))
+        app_icon.addFile(':/64x64.png', QSize(64, 64))
+        app_icon.addFile(':/96x96.png', QSize(96, 96))
+        app_icon.addFile(':/128x128.png', QSize(128, 128))
+        app_icon.addFile(':/192x192.png', QSize(192, 192))
+        app_icon.addFile(':/256x256.png', QSize(256, 256))
 
         return app_icon
 
@@ -782,9 +783,6 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
             painter.end()
 
 
-
-
-
     @pyqtSlot()
     def showStatusBarText(self, text, time=5000):
         """
@@ -927,7 +925,7 @@ if __name__ == "__main__":
 """
 Version-History:
 
-0.0.1   Initial Version
+0.0.1   Initial Version (Alpha)
 
 ToDo's:
 

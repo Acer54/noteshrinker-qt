@@ -42,8 +42,8 @@ class FileIconProvider(QFileIconProvider):
     def __init__(self):
         QFileIconProvider.__init__(self)
 
-    def icon(self, arg):
-        if arg.completeSuffix() in ["PNG", "png", "jpg", "JPG", "JPEG", "jpeg", "GIF", "gif"]:
+    def icon(self, arg):    # added robustness for filenames like "filename.50.20.jpg"
+        if arg.completeSuffix().split(".")[-1] in ["PNG", "png", "jpg", "JPG", "JPEG", "jpeg", "GIF", "gif"]:
             return QIcon(":/image.png")
         else:
             return QFileIconProvider.icon(self, arg)

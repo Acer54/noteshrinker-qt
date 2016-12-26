@@ -246,6 +246,8 @@ class MainWindow(QMainWindow, Ui_MainWindow_noteshrinker_qt):
         self.tV_Fileview.setCurrentIndex(self.model.index(self.picturelocation))
         for i in [1, 2, 3]:
             self.tV_Fileview.hideColumn(i)
+        self.tV_Fileview.header().setResizeMode(0, QHeaderView.ResizeToContents)  # add Vertical scrollbar behaviour
+        self.tV_Fileview.header().setStretchLastSection(False)          # make section 0 expanding according to contents
 
         # Setup the Tablewidget:
         self.tW_workbench.setDropIndicatorShown(True)
